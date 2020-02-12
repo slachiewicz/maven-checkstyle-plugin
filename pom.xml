@@ -65,7 +65,7 @@ under the License.
   <properties>
     <!-- Because Checkstyle 7+ requires Java 8 -->
     <javaVersion>8</javaVersion>
-    <mavenVersion>3.0</mavenVersion>
+    <mavenVersion>3.6.3</mavenVersion>
     <checkstyleVersion>8.29</checkstyleVersion>
     <doxiaVersion>1.4</doxiaVersion>
     <sitePluginVersion>3.7.1</sitePluginVersion>
