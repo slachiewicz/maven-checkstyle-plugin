@@ -23,7 +23,7 @@ under the License.
       <plugin>
         <artifactId>maven-checkstyle-plugin</artifactId>
         <configuration>
-          <outputFile>${basedir}/src/test/test-sources/checkstyle-result.xml</outputFile>
+          <outputFile>${project.basedir}/src/test/test-sources/checkstyle-result.xml</outputFile>
           <outputFileFormat>xml</outputFileFormat>
           <failOnViolation>true</failOnViolation>
         </configuration>

@@ -19,13 +19,14 @@
 package org.apache.maven.plugins.checkstyle.exec;
 
 import java.io.File;
+import java.nio.file.Path;
 import java.util.Collection;
 import java.util.List;
 
 import com.puppycrawl.tools.checkstyle.api.AuditListener;
-import org.apache.maven.artifact.Artifact;
-import org.apache.maven.model.Resource;
-import org.apache.maven.project.MavenProject;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.model.Resource;
 
 /**
  * @author Olivier Lamy
@@ -53,7 +54,9 @@ public class CheckstyleExecutorRequest {
      */
     private String resourceExcludes;
 
-    private MavenProject project;
+    private Project project;
+
+    private Session session;
 
     private String suppressionsLocation;
 
@@ -103,17 +106,17 @@ public class CheckstyleExecutorRequest {
     /**
      * @since 2.8
      */
-    private List<MavenProject> reactorProjects;
+    private List<Project> reactorProjects;
 
     /**
      * @since 2.12.1
      */
-    private List<Artifact> licenseArtifacts;
+    private List<Path> licenseArtifacts;
 
     /**
      * @since 2.12.1
      */
-    private List<Artifact> configurationArtifacts;
+    private List<Path> configurationArtifacts;
 
     /**
      * @since 3.0.0
@@ -168,11 +171,20 @@ public class CheckstyleExecutorRequest {
         return this;
     }
 
-    public MavenProject getProject() {
+    public Session getSession() {
+        return session;
+    }
+
+    public CheckstyleExecutorRequest setSession(Session session) {
+        this.session = session;
+        return this;
+    }
+
+    public Project getProject() {
         return project;
     }
 
-    public CheckstyleExecutorRequest setProject(MavenProject project) {
+    public CheckstyleExecutorRequest setProject(Project project) {
         this.project = project;
         return this;
     }
@@ -355,7 +367,7 @@ public class CheckstyleExecutorRequest {
      *
      * @return the reactor projects
      */
-    public List<MavenProject> getReactorProjects() {
+    public List<Project> getReactorProjects() {
         return reactorProjects;
     }
 
@@ -365,7 +377,7 @@ public class CheckstyleExecutorRequest {
      * @param pReactorProjects the reactor projects
      * @return this object
      */
-    public CheckstyleExecutorRequest setReactorProjects(List<MavenProject> pReactorProjects) {
+    public CheckstyleExecutorRequest setReactorProjects(List<Project> pReactorProjects) {
         this.reactorProjects = pReactorProjects;
         return this;
     }
@@ -375,7 +387,7 @@ public class CheckstyleExecutorRequest {
      *
      * @return the license artifacts
      */
-    public List<Artifact> getLicenseArtifacts() {
+    public List<Path> getLicenseArtifacts() {
         return licenseArtifacts;
     }
 
@@ -385,7 +397,7 @@ public class CheckstyleExecutorRequest {
      * @param licenseArtifacts list of license artifacts
      * @return this object
      */
-    public CheckstyleExecutorRequest setLicenseArtifacts(List<Artifact> licenseArtifacts) {
+    public CheckstyleExecutorRequest setLicenseArtifacts(List<Path> licenseArtifacts) {
         this.licenseArtifacts = licenseArtifacts;
         return this;
     }
@@ -395,7 +407,7 @@ public class CheckstyleExecutorRequest {
      *
      * @return the license artifacts
      */
-    public List<Artifact> getConfigurationArtifacts() {
+    public List<Path> getConfigurationArtifacts() {
         return configurationArtifacts;
     }
 
@@ -405,7 +417,7 @@ public class CheckstyleExecutorRequest {
      * @param configArtifacts list of artifacts
      * @return this object
      */
-    public CheckstyleExecutorRequest setConfigurationArtifacts(List<Artifact> configArtifacts) {
+    public CheckstyleExecutorRequest setConfigurationArtifacts(List<Path> configArtifacts) {
         this.configurationArtifacts = configArtifacts;
         return this;
     }

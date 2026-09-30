@@ -18,21 +18,18 @@
  */
 package org.apache.maven.plugins.checkstyle;
 
-import javax.inject.Inject;
-import javax.inject.Named;
-
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 import com.puppycrawl.tools.checkstyle.DefaultLogger;
 import com.puppycrawl.tools.checkstyle.SarifLogger;
@@ -40,24 +37,27 @@ import com.puppycrawl.tools.checkstyle.XMLLogger;
 import com.puppycrawl.tools.checkstyle.api.AuditListener;
 import com.puppycrawl.tools.checkstyle.api.AutomaticBean.OutputStreamOptions;
 import com.puppycrawl.tools.checkstyle.api.CheckstyleException;
-import org.apache.maven.artifact.Artifact;
-import org.apache.maven.model.Dependency;
-import org.apache.maven.model.Plugin;
-import org.apache.maven.model.PluginManagement;
-import org.apache.maven.model.Resource;
-import org.apache.maven.plugin.AbstractMojo;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugin.descriptor.PluginDescriptor;
-import org.apache.maven.plugins.annotations.LifecyclePhase;
-import org.apache.maven.plugins.annotations.Mojo;
-import org.apache.maven.plugins.annotations.Parameter;
-import org.apache.maven.plugins.annotations.ResolutionScope;
+import org.apache.maven.api.Dependency;
+import org.apache.maven.api.MojoExecution;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.ProjectScope;
+import org.apache.maven.api.Session;
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.di.Named;
+import org.apache.maven.api.model.Plugin;
+import org.apache.maven.api.model.PluginManagement;
+import org.apache.maven.api.model.Resource;
+import org.apache.maven.api.plugin.Log;
+import org.apache.maven.api.plugin.Mojo;
+import org.apache.maven.api.plugin.MojoException;
+import org.apache.maven.api.plugin.annotations.Parameter;
+import org.apache.maven.api.services.ArtifactManager;
+import org.apache.maven.api.xml.XmlNode;
+import org.apache.maven.api.xml.XmlService;
 import org.apache.maven.plugins.checkstyle.exec.CheckstyleExecutor;
 import org.apache.maven.plugins.checkstyle.exec.CheckstyleExecutorException;
 import org.apache.maven.plugins.checkstyle.exec.CheckstyleExecutorRequest;
-import org.apache.maven.project.MavenProject;
-import org.codehaus.plexus.configuration.PlexusConfiguration;
+import org.apache.maven.plugins.checkstyle.exec.ProjectRoots;
 import org.codehaus.plexus.util.FileUtils;
 import org.codehaus.plexus.util.PathTool;
 import org.codehaus.plexus.util.xml.pull.MXParser;
@@ -71,12 +71,8 @@ import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
  *
  * @author <a href="mailto:joakim@erdfelt.net">Joakim Erdfelt</a>
  */
-@Mojo(
-        name = "check",
-        defaultPhase = LifecyclePhase.VERIFY,
-        requiresDependencyResolution = ResolutionScope.NONE,
-        threadSafe = true)
-public class CheckstyleViolationCheckMojo extends AbstractMojo {
+@org.apache.maven.api.plugin.annotations.Mojo(name = "check", defaultPhase = "verify")
+public class CheckstyleViolationCheckMojo implements Mojo {
 
     private static final String JAVA_FILES = "**\\/*.java";
     private static final String DEFAULT_CONFIG_LOCATION = "sun_checks.xml";
@@ -163,22 +159,6 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
      */
     @Parameter(property = "checkstyle.logViolationCount", defaultValue = "true")
     private boolean logViolationCountToConsole;
-
-    /**
-     * Specifies the location of the resources to be used for Checkstyle.
-     *
-     * @since 2.11
-     */
-    @Parameter(defaultValue = "${project.resources}", readonly = true)
-    protected List<Resource> resources;
-
-    /**
-     * Specifies the location of the test resources to be used for Checkstyle.
-     *
-     * @since 2.16
-     */
-    @Parameter(defaultValue = "${project.testResources}", readonly = true)
-    protected List<Resource> testResources;
 
     /**
      * <p>
@@ -302,14 +282,20 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
     /**
      * The Maven Project Object.
      */
-    @Parameter(defaultValue = "${project}", readonly = true, required = true)
-    protected MavenProject project;
+    @Inject
+    protected Project project;
+
+    @Inject
+    protected Session session;
 
     /**
-     * The Plugin Descriptor.
+     * The current plugin execution, used to find this plugin's own dependencies.
      */
-    @Parameter(defaultValue = "${plugin}", readonly = true, required = true)
-    private PluginDescriptor plugin;
+    @Inject
+    private MojoExecution mojoExecution;
+
+    @Inject
+    private Log log;
 
     /**
      * If <code>null</code>, the Checkstyle plugin will display violations on stdout.
@@ -447,7 +433,7 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
      * @since 2.12
      */
     @Parameter
-    private PlexusConfiguration checkstyleRules;
+    private XmlNode checkstyleRules;
 
     /**
      * Dump file for inlined Checkstyle rules.
@@ -489,18 +475,30 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
     /**
      * @since 2.5
      */
-    protected final CheckstyleExecutor checkstyleExecutor;
-
     @Inject
-    public CheckstyleViolationCheckMojo(final @Named("default") CheckstyleExecutor checkstyleExecutor) {
-        this.checkstyleExecutor = checkstyleExecutor;
+    @Named("default")
+    protected CheckstyleExecutor checkstyleExecutor;
+
+    private Log getLog() {
+        return log;
+    }
+
+    /**
+     * Maven 4.0.0-rc-7 drops the attributes of a node when it injects an {@code XmlNode} parameter, which loses the
+     * {@code name} of every Checkstyle module. Read the node from the raw execution configuration instead.
+     */
+    private XmlNode getCheckstyleRules() {
+        return mojoExecution
+                .getConfiguration()
+                .map(configuration -> configuration.child("checkstyleRules"))
+                .orElse(checkstyleRules);
     }
 
     /**
      * {@inheritDoc}
      */
     @Override
-    public void execute() throws MojoExecutionException, MojoFailureException {
+    public void execute() throws MojoException {
         checkDeprecatedParameterUsage(sourceDirectory, "sourceDirectory", "sourceDirectories");
         checkDeprecatedParameterUsage(testSourceDirectory, "testSourceDirectory", "testSourceDirectories");
         if (skip) {
@@ -511,22 +509,26 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
 
         if (!skipExec) {
             String effectiveConfigLocation = configLocation;
+            XmlNode checkstyleRules = getCheckstyleRules();
             if (checkstyleRules != null) {
                 if (!DEFAULT_CONFIG_LOCATION.equals(configLocation)) {
-                    throw new MojoExecutionException(
+                    throw new MojoException(
                             "If you use inline configuration for rules, don't specify " + "a configLocation");
                 }
-                if (checkstyleRules.getChildCount() > 1) {
-                    throw new MojoExecutionException("Currently only one root module is supported");
+                if (checkstyleRules.children().size() > 1) {
+                    throw new MojoException("Currently only one root module is supported");
                 }
 
-                PlexusConfiguration checkerModule = checkstyleRules.getChild(0);
+                XmlNode checkerModule = checkstyleRules.children().get(0);
 
                 try {
                     FileUtils.forceMkdir(rulesFiles.getParentFile());
-                    FileUtils.fileWrite(rulesFiles, checkstyleRulesHeader + checkerModule.toString());
+                    StringWriter rules = new StringWriter();
+                    rules.write(checkstyleRulesHeader);
+                    XmlService.write(checkerModule, rules);
+                    FileUtils.fileWrite(rulesFiles, rules.toString());
                 } catch (final IOException e) {
-                    throw new MojoExecutionException(e.getMessage(), e);
+                    throw new MojoException(e.getMessage(), e);
                 }
                 effectiveConfigLocation = rulesFiles.getAbsolutePath();
             }
@@ -546,10 +548,11 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
                         .setIncludeTestResources(includeTestResources)
                         .setIncludeTestSourceDirectory(includeTestSourceDirectory)
                         .setListener(getListener())
+                        .setSession(session)
                         .setProject(project)
                         .setSourceDirectories(getSourceDirectories())
-                        .setResources(resources)
-                        .setTestResources(testResources)
+                        .setResources(getResources(ProjectScope.MAIN))
+                        .setTestResources(getResources(ProjectScope.TEST))
                         .setSuppressionsLocation(suppressionsLocation)
                         .setTestSourceDirectories(getTestSourceDirectories())
                         .setConfigLocation(effectiveConfigLocation)
@@ -565,9 +568,9 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
                 checkstyleExecutor.executeCheckstyle(request);
 
             } catch (CheckstyleException e) {
-                throw new MojoExecutionException("Failed during checkstyle configuration", e);
+                throw new MojoException("Failed during checkstyle configuration", e);
             } catch (CheckstyleExecutorException e) {
-                throw new MojoExecutionException("Failed during checkstyle execution", e);
+                throw new MojoException("Failed during checkstyle execution", e);
             } finally {
                 // be sure to restore original context classloader
                 Thread.currentThread().setContextClassLoader(currentClassLoader);
@@ -575,7 +578,7 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
         }
 
         if (!"xml".equals(outputFileFormat) && skipExec) {
-            throw new MojoExecutionException("Output format is '" + outputFileFormat
+            throw new MojoException("Output format is '" + outputFileFormat
                     + "', checkstyle:check requires format to be 'xml' when using skipExec.");
         }
 
@@ -600,7 +603,7 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
                     if (maxAllowedViolations > 0) {
                         msg += " The maximum number of allowed violations is " + maxAllowedViolations + ".";
                     }
-                    throw new MojoFailureException(msg);
+                    throw new MojoException(msg);
                 }
 
                 getLog().warn("checkstyle:check violations detected but failOnViolation set to false");
@@ -612,15 +615,13 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
                 getLog().info(msg);
             }
         } catch (IOException | XmlPullParserException e) {
-            throw new MojoExecutionException(
-                    "Unable to read Checkstyle results xml: " + outputXmlFile.getAbsolutePath(), e);
+            throw new MojoException("Unable to read Checkstyle results xml: " + outputXmlFile.getAbsolutePath(), e);
         }
     }
 
-    private void checkDeprecatedParameterUsage(Object parameter, String name, String replacement)
-            throws MojoFailureException {
+    private void checkDeprecatedParameterUsage(Object parameter, String name, String replacement) throws MojoException {
         if (parameter != null) {
-            throw new MojoFailureException("You are using '" + name + "' which has been removed"
+            throw new MojoException("You are using '" + name + "' which has been removed"
                     + " from the maven-checkstyle-plugin. " + "Please use '" + replacement
                     + "' and refer to the >>Major Version Upgrade to version 3.0.0<< " + "on the plugin site.");
         }
@@ -629,7 +630,7 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
     private List<Violation> getViolations(XmlPullParser xpp) throws XmlPullParserException, IOException {
         List<Violation> violations = new ArrayList<>();
 
-        String basedir = project.getBasedir().getAbsolutePath();
+        String basedir = project.getBasedir().toAbsolutePath().toString();
         String file = "";
 
         for (int eventType = xpp.getEventType(); eventType != XmlPullParser.END_DOCUMENT; eventType = xpp.next()) {
@@ -753,7 +754,7 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
         return false;
     }
 
-    private AuditListener getConsoleListener() throws MojoExecutionException {
+    private AuditListener getConsoleListener() throws MojoException {
         AuditListener consoleListener;
 
         if (useFile == null) {
@@ -767,7 +768,7 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
         return consoleListener;
     }
 
-    private OutputStream getOutputStream(File file) throws MojoExecutionException {
+    private OutputStream getOutputStream(File file) throws MojoException {
         File parentFile = file.getAbsoluteFile().getParentFile();
 
         if (!parentFile.exists()) {
@@ -778,12 +779,12 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
         try {
             fileOutputStream = new FileOutputStream(file);
         } catch (FileNotFoundException e) {
-            throw new MojoExecutionException("Unable to create output stream: " + file, e);
+            throw new MojoException("Unable to create output stream: " + file, e);
         }
         return fileOutputStream;
     }
 
-    private AuditListener getListener() throws MojoFailureException, MojoExecutionException {
+    private AuditListener getListener() throws MojoException {
         AuditListener listener = null;
 
         if (outputFileFormat != null && !outputFileFormat.isEmpty()) {
@@ -806,7 +807,7 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
                     compoundListener.addListener(new DefaultLogger(out, OutputStreamOptions.CLOSE));
                     listener = compoundListener;
                 } catch (IOException e) {
-                    throw new MojoExecutionException("Unable to create temporary file", e);
+                    throw new MojoException("Unable to create temporary file", e);
                 }
             } else if ("sarif".equals(outputFileFormat)) {
                 try {
@@ -821,10 +822,10 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
                     compoundListener.addListener(new SarifLogger(out, OutputStreamOptions.CLOSE));
                     listener = compoundListener;
                 } catch (IOException e) {
-                    throw new MojoExecutionException("Unable to create temporary file", e);
+                    throw new MojoException("Unable to create temporary file", e);
                 }
             } else {
-                throw new MojoFailureException(
+                throw new MojoException(
                         "Invalid output file format: (" + outputFileFormat + "). Must be 'plain' or 'xml'.");
             }
         }
@@ -832,52 +833,70 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
         return listener;
     }
 
-    private List<Artifact> collectArtifacts(String hint) {
-        List<Artifact> artifacts = new ArrayList<>();
+    private List<Resource> getResources(ProjectScope scope) {
+        return ProjectRoots.resources(session, project, scope);
+    }
+
+    private List<Path> collectArtifacts(String hint) {
+        List<Path> artifacts = new ArrayList<>();
 
         PluginManagement pluginManagement = project.getBuild().getPluginManagement();
         if (pluginManagement != null) {
-            artifacts.addAll(getCheckstylePluginDependenciesAsArtifacts(pluginManagement.getPluginsAsMap(), hint));
+            artifacts.addAll(getCheckstylePluginDependenciesAsArtifacts(pluginManagement.getPlugins(), hint));
         }
 
         artifacts.addAll(
-                getCheckstylePluginDependenciesAsArtifacts(project.getBuild().getPluginsAsMap(), hint));
+                getCheckstylePluginDependenciesAsArtifacts(project.getBuild().getPlugins(), hint));
 
         return artifacts;
     }
 
-    private List<Artifact> getCheckstylePluginDependenciesAsArtifacts(Map<String, Plugin> plugins, String hint) {
-        List<Artifact> artifacts = new ArrayList<>();
+    private List<Path> getCheckstylePluginDependenciesAsArtifacts(List<Plugin> plugins, String hint) {
+        List<Path> artifacts = new ArrayList<>();
 
-        Plugin checkstylePlugin = plugins.get(plugin.getGroupId() + ":" + plugin.getArtifactId());
-        if (checkstylePlugin != null) {
-            for (Dependency dep : checkstylePlugin.getDependencies()) {
+        org.apache.maven.api.Plugin self = mojoExecution.getPlugin();
+        String selfKey = self.getModel().getGroupId() + ":" + self.getModel().getArtifactId();
+        ArtifactManager artifactManager = session.getService(ArtifactManager.class);
+        for (Plugin checkstylePlugin : plugins) {
+            if (!selfKey.equals(checkstylePlugin.getGroupId() + ":" + checkstylePlugin.getArtifactId())) {
+                continue;
+            }
+            for (org.apache.maven.api.model.Dependency dep : checkstylePlugin.getDependencies()) {
                 // @todo if we can filter on hints, it should be done here...
                 String depKey = dep.getGroupId() + ":" + dep.getArtifactId();
-                artifacts.add(plugin.getArtifactMap().get(depKey));
+                Dependency resolved = self.getDependenciesMap().get(depKey);
+                if (resolved != null) {
+                    artifactManager.getPath(resolved).ifPresent(artifacts::add);
+                }
             }
         }
         return artifacts;
     }
 
+    private List<String> getSourceRoots(ProjectScope scope) {
+        List<String> roots = new ArrayList<>();
+        ProjectRoots.sourceRoots(session, project, scope).forEach(dir -> roots.add(dir.getPath()));
+        return roots;
+    }
+
     private List<File> getSourceDirectories() {
         if (sourceDirectories == null) {
-            sourceDirectories = filterBuildTarget(project.getCompileSourceRoots());
+            sourceDirectories = filterBuildTarget(getSourceRoots(ProjectScope.MAIN));
         }
         List<File> sourceDirs = new ArrayList<>(sourceDirectories.size());
         for (String sourceDir : sourceDirectories) {
-            sourceDirs.add(FileUtils.resolveFile(project.getBasedir(), sourceDir));
+            sourceDirs.add(FileUtils.resolveFile(project.getBasedir().toFile(), sourceDir));
         }
         return sourceDirs;
     }
 
     private List<File> getTestSourceDirectories() {
         if (testSourceDirectories == null) {
-            testSourceDirectories = filterBuildTarget(project.getTestCompileSourceRoots());
+            testSourceDirectories = filterBuildTarget(getSourceRoots(ProjectScope.TEST));
         }
         List<File> testSourceDirs = new ArrayList<>(testSourceDirectories.size());
         for (String testSourceDir : testSourceDirectories) {
-            testSourceDirs.add(FileUtils.resolveFile(project.getBasedir(), testSourceDir));
+            testSourceDirs.add(FileUtils.resolveFile(project.getBasedir().toFile(), testSourceDir));
         }
         return testSourceDirs;
     }
@@ -889,11 +908,12 @@ public class CheckstyleViolationCheckMojo extends AbstractMojo {
 
         List<String> filtered = new ArrayList<>(sourceDirectories.size());
         Path buildTarget = FileUtils.resolveFile(
-                        project.getBasedir(), project.getBuild().getDirectory())
+                        project.getBasedir().toFile(), project.getBuild().getDirectory())
                 .toPath();
 
         for (String sourceDir : sourceDirectories) {
-            Path src = FileUtils.resolveFile(project.getBasedir(), sourceDir).toPath();
+            Path src = FileUtils.resolveFile(project.getBasedir().toFile(), sourceDir)
+                    .toPath();
             if (!src.startsWith(buildTarget)) {
                 filtered.add(sourceDir);
             }

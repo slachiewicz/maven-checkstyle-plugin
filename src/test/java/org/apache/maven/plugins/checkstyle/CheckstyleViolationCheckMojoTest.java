@@ -18,16 +18,15 @@
  */
 package org.apache.maven.plugins.checkstyle;
 
-import javax.inject.Inject;
-
+import org.apache.maven.api.MojoExecution;
 import org.apache.maven.api.di.Provides;
+import org.apache.maven.api.model.Plugin;
+import org.apache.maven.api.plugin.MojoException;
 import org.apache.maven.api.plugin.testing.InjectMojo;
 import org.apache.maven.api.plugin.testing.MojoParameter;
 import org.apache.maven.api.plugin.testing.MojoTest;
-import org.apache.maven.plugin.MojoExecutionException;
-import org.apache.maven.plugin.MojoFailureException;
-import org.apache.maven.plugin.descriptor.PluginDescriptor;
-import org.apache.maven.project.MavenProject;
+import org.apache.maven.api.plugin.testing.stubs.MojoExecutionStub;
+import org.apache.maven.api.plugin.testing.stubs.PluginStub;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.fail;
@@ -39,11 +38,18 @@ import static org.junit.jupiter.api.Assertions.fail;
 @MojoTest
 public class CheckstyleViolationCheckMojoTest {
 
-    @Inject
-    private MavenProject project;
-
-    @Inject
-    private PluginDescriptor plugin;
+    @Provides
+    @SuppressWarnings("unused")
+    private MojoExecution mojoExecution() {
+        PluginStub plugin = new PluginStub();
+        plugin.setModel(Plugin.newBuilder()
+                .groupId("org.apache.maven.plugins")
+                .artifactId("maven-checkstyle-plugin")
+                .build());
+        MojoExecutionStub execution = new MojoExecutionStub("default", "check");
+        execution.setPlugin(plugin);
+        return execution;
+    }
 
     @InjectMojo(goal = "check", pom = "src/test/resources/plugin-configs/check-plugin-config.xml")
     @MojoParameter(name = "configLocation", value = "sun_checks.xml")
@@ -57,7 +63,7 @@ public class CheckstyleViolationCheckMojoTest {
             mojo.execute();
 
             fail("Must throw an exception on violations");
-        } catch (MojoFailureException e) {
+        } catch (MojoException e) {
             // expected
         }
     }
@@ -75,7 +81,7 @@ public class CheckstyleViolationCheckMojoTest {
             mojo.execute();
 
             fail("Must throw an exception invalid format: plain");
-        } catch (MojoExecutionException e) {
+        } catch (MojoException e) {
             // expected
         }
     }
@@ -100,17 +106,9 @@ public class CheckstyleViolationCheckMojoTest {
             mojo.execute();
 
             fail("Must fail on violations");
-        } catch (MojoExecutionException e) {
+        } catch (MojoException e) {
             // expected
         }
-    }
-
-    @Provides
-    public PluginDescriptor getPluginDescriptor() {
-        PluginDescriptor descriptorStub = new PluginDescriptor();
-        descriptorStub.setGroupId("org.apache.maven.plugins");
-        descriptorStub.setArtifactId("maven-checkstyle-plugin");
-        return descriptorStub;
     }
 
     @InjectMojo(goal = "check", pom = "src/test/resources/plugin-configs/check-plugin-plain-output.xml")

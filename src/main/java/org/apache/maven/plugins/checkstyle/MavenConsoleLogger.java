@@ -27,7 +27,7 @@ import com.puppycrawl.tools.checkstyle.DefaultLogger;
 import com.puppycrawl.tools.checkstyle.api.AuditEvent;
 import com.puppycrawl.tools.checkstyle.api.AuditListener;
 import com.puppycrawl.tools.checkstyle.api.AutomaticBean.OutputStreamOptions;
-import org.apache.maven.plugin.logging.Log;
+import org.apache.maven.api.plugin.Log;
 
 /**
  * An implementation of {@link AuditListener} that redirects output to the specified {@code log}
