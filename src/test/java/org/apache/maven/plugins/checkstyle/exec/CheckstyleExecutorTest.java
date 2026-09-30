@@ -18,8 +18,8 @@
  */
 package org.apache.maven.plugins.checkstyle.exec;
 
-import javax.inject.Inject;
-
+import org.apache.maven.api.di.Inject;
+import org.apache.maven.api.di.Named;
 import org.apache.maven.api.plugin.testing.MojoTest;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 @MojoTest
 public class CheckstyleExecutorTest {
     @Inject
+    @Named("default")
     private CheckstyleExecutor executor;
 
     @Test

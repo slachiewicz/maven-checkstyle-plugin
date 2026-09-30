@@ -28,7 +28,7 @@ under the License.
   </parent>
 
   <artifactId>maven-checkstyle-plugin</artifactId>
-  <version>3.6.1-SNAPSHOT</version>
+  <version>4.0.0-beta-1-SNAPSHOT</version>
   <packaging>maven-plugin</packaging>
 
   <name>Apache Maven Checkstyle Plugin</name>
@@ -48,7 +48,7 @@ under the License.
   </contributors>
 
   <prerequisites>
-    <maven>3.6.3</maven>
+    <maven>${mavenVersion}</maven>
   </prerequisites>
 
   <scm>
@@ -73,11 +73,13 @@ under the License.
   </distributionManagement>
 
   <properties>
-    <javaVersion>8</javaVersion>
-    <mavenVersion>3.9.16</mavenVersion>
-    <resolverVersion>1.9.27</resolverVersion>
+    <javaVersion>17</javaVersion>
+    <mavenVersion>4.0.0-rc-7</mavenVersion>
+    <version.maven-plugin-tools>4.0.0-beta-3</version.maven-plugin-tools>
+    <version.maven-plugin-testing>4.0.0-beta-4</version.maven-plugin-testing>
+    <guiceVersion>6.0.0</guiceVersion>
     <checkstyleVersion>9.3</checkstyleVersion>
-    <slf4jVersion>1.7.36</slf4jVersion>
+    <slf4jVersion>2.0.19</slf4jVersion>
     <doxiaVersion>2.1.0</doxiaVersion>
     <doxiaSitetoolsVersion>2.1.0</doxiaSitetoolsVersion>
     <sitePluginVersion>${version.maven-site-plugin}</sitePluginVersion>
@@ -89,81 +91,36 @@ under the License.
     <!-- maven -->
     <dependency>
       <groupId>org.apache.maven</groupId>
-      <artifactId>maven-artifact</artifactId>
+      <artifactId>maven-api-annotations</artifactId>
       <version>${mavenVersion}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.maven</groupId>
-      <artifactId>maven-core</artifactId>
+      <artifactId>maven-api-core</artifactId>
       <version>${mavenVersion}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.maven</groupId>
-      <artifactId>maven-model</artifactId>
+      <artifactId>maven-api-di</artifactId>
       <version>${mavenVersion}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
       <groupId>org.apache.maven</groupId>
-      <artifactId>maven-plugin-api</artifactId>
+      <artifactId>maven-api-model</artifactId>
       <version>${mavenVersion}</version>
       <scope>provided</scope>
     </dependency>
     <dependency>
-      <groupId>org.apache.maven.plugin-tools</groupId>
-      <artifactId>maven-plugin-annotations</artifactId>
-      <version>${version.maven-plugin-tools}</version>
+      <groupId>org.apache.maven</groupId>
+      <artifactId>maven-api-xml</artifactId>
+      <version>${mavenVersion}</version>
       <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>javax.inject</groupId>
-      <artifactId>javax.inject</artifactId>
-      <version>1</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.eclipse.sisu</groupId>
-      <artifactId>org.eclipse.sisu.plexus</artifactId>
-      <scope>provided</scope>
-    </dependency>
-
-    <!-- shared -->
-    <dependency>
-      <groupId>org.apache.maven.reporting</groupId>
-      <artifactId>maven-reporting-api</artifactId>
-      <version>4.0.0</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.maven.reporting</groupId>
-      <artifactId>maven-reporting-impl</artifactId>
-      <version>4.0.0</version>
-    </dependency>
-
-    <!-- doxia -->
-    <dependency>
-      <groupId>org.apache.maven.doxia</groupId>
-      <artifactId>doxia-sink-api</artifactId>
-      <version>${doxiaVersion}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.maven.doxia</groupId>
-      <artifactId>doxia-core</artifactId>
-      <version>${doxiaVersion}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.maven.doxia</groupId>
-      <artifactId>doxia-integration-tools</artifactId>
-      <version>${doxiaSitetoolsVersion}</version>
     </dependency>
 
     <!-- plexus -->
-    <dependency>
-      <groupId>org.eclipse.sisu</groupId>
-      <artifactId>org.eclipse.sisu.inject</artifactId>
-      <scope>provided</scope>
-    </dependency>
     <dependency>
       <groupId>org.codehaus.plexus</groupId>
       <artifactId>plexus-resources</artifactId>
@@ -176,17 +133,6 @@ under the License.
     <dependency>
       <groupId>org.codehaus.plexus</groupId>
       <artifactId>plexus-xml</artifactId>
-    </dependency>
-    <dependency>
-      <groupId>org.codehaus.plexus</groupId>
-      <artifactId>plexus-i18n</artifactId>
-      <version>1.2.0</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.codehaus.plexus</groupId>
-          <artifactId>plexus-component-api</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
 
     <dependency>
@@ -212,12 +158,6 @@ under the License.
       <artifactId>junit-jupiter-api</artifactId>
       <scope>test</scope>
     </dependency>
-    <!-- is needed because of MavenProjectStub-->
-    <dependency>
-      <groupId>org.junit.vintage</groupId>
-      <artifactId>junit-vintage-engine</artifactId>
-      <scope>test</scope>
-    </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
       <artifactId>slf4j-simple</artifactId>
@@ -227,49 +167,31 @@ under the License.
     <dependency>
       <groupId>org.apache.maven.plugin-testing</groupId>
       <artifactId>maven-plugin-testing-harness</artifactId>
-      <version>3.5.1</version>
-      <scope>test</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>org.codehaus.plexus</groupId>
-          <artifactId>plexus-container-default</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.maven.resolver</groupId>
-      <artifactId>maven-resolver-api</artifactId>
-      <version>${resolverVersion}</version>
+      <version>${version.maven-plugin-testing}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.apache.maven.resolver</groupId>
-      <artifactId>maven-resolver-spi</artifactId>
-      <version>${resolverVersion}</version>
+      <groupId>org.apache.maven</groupId>
+      <artifactId>maven-impl</artifactId>
+      <version>${mavenVersion}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.apache.maven.resolver</groupId>
-      <artifactId>maven-resolver-util</artifactId>
-      <version>${resolverVersion}</version>
+      <groupId>org.apache.maven</groupId>
+      <artifactId>maven-core</artifactId>
+      <version>${mavenVersion}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.apache.maven.resolver</groupId>
-      <artifactId>maven-resolver-impl</artifactId>
-      <version>${resolverVersion}</version>
+      <groupId>org.apache.maven</groupId>
+      <artifactId>maven-xml</artifactId>
+      <version>${mavenVersion}</version>
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.apache.maven.resolver</groupId>
-      <artifactId>maven-resolver-connector-basic</artifactId>
-      <version>${resolverVersion}</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.maven.resolver</groupId>
-      <artifactId>maven-resolver-transport-http</artifactId>
-      <version>${resolverVersion}</version>
+      <groupId>com.google.inject</groupId>
+      <artifactId>guice</artifactId>
+      <version>${guiceVersion}</version>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -317,7 +239,8 @@ under the License.
               </goals>
               <configuration>
                 <failOnWarning>true</failOnWarning>
-                <ignoredDependencies>org.slf4j:slf4j-simple:*,org.apache.maven.resolver:maven-resolver-connector-basic,org.apache.maven.resolver:maven-resolver-transport-http</ignoredDependencies>
+                <!-- test runtime only: Maven 4 harness and DI container -->
+                <ignoredDependencies>org.slf4j:slf4j-simple:*,org.apache.maven:maven-impl,org.apache.maven:maven-core,org.apache.maven:maven-xml,com.google.inject:guice</ignoredDependencies>
               </configuration>
             </execution>
           </executions>
@@ -326,29 +249,26 @@ under the License.
     </pluginManagement>
     <plugins>
       <plugin>
-        <groupId>org.codehaus.mojo</groupId>
-        <artifactId>animal-sniffer-maven-plugin</artifactId>
-        <version>1.28</version>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
         <configuration>
-          <signature>
-            <groupId>org.codehaus.mojo.signature</groupId>
-            <artifactId>java18</artifactId>
-            <version>1.0</version>
-          </signature>
+          <!--
+            The report goals cannot run on Maven 4 yet: maven-site-plugin 3.x only accepts Maven 3 mojos as reports
+            and maven-reporting-impl 4.x extends the Maven 3 AbstractMojo. Keep the sources, do not build them.
+            See https://github.com/apache/maven/issues/13302
+          -->
+          <excludes>
+            <exclude>**/AbstractCheckstyleReport.java</exclude>
+            <exclude>**/CheckstyleReport.java</exclude>
+            <exclude>**/CheckstyleAggregateReport.java</exclude>
+            <exclude>**/CheckstyleReportRenderer.java</exclude>
+          </excludes>
+          <testExcludes>
+            <testExclude>**/CheckstyleReportTest.java</testExclude>
+            <testExclude>**/stubs/**</testExclude>
+            <testExclude>**/DependencyArtifactStubFactory.java</testExclude>
+          </testExcludes>
         </configuration>
-        <executions>
-          <execution>
-            <id>check-java-compatibility</id>
-            <goals>
-              <goal>check</goal>
-            </goals>
-            <phase>process-classes</phase>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
-        <groupId>org.eclipse.sisu</groupId>
-        <artifactId>sisu-maven-plugin</artifactId>
       </plugin>
     </plugins>
   </build>
@@ -366,6 +286,31 @@ under the License.
                 <goal>clean</goal>
                 <goal>site</goal>
               </goals>
+              <!--
+                These ITs run the report goals (checkstyle:checkstyle, site), which cannot run on Maven 4 yet.
+                See https://github.com/apache/maven/issues/13302
+              -->
+              <pomExcludes>
+                <pomExclude>MCHECKSTYLE-137/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-172/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-193/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-222-no-resources/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-222-resources/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-222-testResources/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-224/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-253-jdk8/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-332_cache-checker/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-338/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-357-with-header-override/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-357/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-365/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-99-custom-xref-test-location/pom.xml</pomExclude>
+                <pomExclude>MCHECKSTYLE-99/pom.xml</pomExclude>
+                <pomExclude>checkstyle-goal/pom.xml</pomExclude>
+                <pomExclude>checkstyle-report/pom.xml</pomExclude>
+                <pomExclude>minimal-pom/pom.xml</pomExclude>
+                <pomExclude>multi-modules-aggregate/pom.xml</pomExclude>
+              </pomExcludes>
             </configuration>
           </plugin>
         </plugins>

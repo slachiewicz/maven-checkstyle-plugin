@@ -18,18 +18,17 @@
  */
 package org.apache.maven.plugins.checkstyle.exec;
 
-import javax.inject.Inject;
-import javax.inject.Named;
-
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -48,16 +47,22 @@ import com.puppycrawl.tools.checkstyle.api.Configuration;
 import com.puppycrawl.tools.checkstyle.api.FilterSet;
 import com.puppycrawl.tools.checkstyle.filters.SuppressionsLoader;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.maven.artifact.Artifact;
-import org.apache.maven.artifact.DependencyResolutionRequiredException;
-import org.apache.maven.model.Resource;
-import org.apache.maven.project.MavenProject;
+import org.apache.maven.api.PathScope;
+import org.apache.maven.api.Project;
+import org.apache.maven.api.ProjectScope;
+import org.apache.maven.api.di.Named;
+import org.apache.maven.api.model.Resource;
+import org.apache.maven.plugins.checkstyle.resource.LicenseResourceManager;
+import org.codehaus.plexus.resource.DefaultResourceManager;
 import org.codehaus.plexus.resource.ResourceManager;
 import org.codehaus.plexus.resource.loader.FileResourceCreationException;
 import org.codehaus.plexus.resource.loader.FileResourceLoader;
+import org.codehaus.plexus.resource.loader.JarResourceLoader;
+import org.codehaus.plexus.resource.loader.ResourceLoader;
 import org.codehaus.plexus.resource.loader.ResourceNotFoundException;
+import org.codehaus.plexus.resource.loader.ThreadContextClasspathResourceLoader;
+import org.codehaus.plexus.resource.loader.URLResourceLoader;
 import org.codehaus.plexus.util.FileUtils;
-import org.eclipse.sisu.Typed;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,21 +70,27 @@ import org.slf4j.LoggerFactory;
  * @author Olivier Lamy
  * @since 2.5
  */
-@Named
-@Typed(CheckstyleExecutor.class)
+@Named("default")
 public class DefaultCheckstyleExecutor implements CheckstyleExecutor {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultCheckstyleExecutor.class);
 
-    private final ResourceManager locator;
+    /**
+     * Creates the resource managers without a container: plexus-resources is a Sisu component library, but its
+     * loaders have public no-arg constructors and {@link DefaultResourceManager} takes them as a map. The loaders
+     * keep their search paths, so every execution builds its own set.
+     */
+    private ResourceManager locator = new DefaultResourceManager(newResourceLoaders());
 
-    private final ResourceManager licenseLocator;
+    private ResourceManager licenseLocator = new LicenseResourceManager(newResourceLoaders());
 
-    @Inject
-    public DefaultCheckstyleExecutor(
-            final @Named("default") ResourceManager locator, final @Named("license") ResourceManager licenseLocator) {
-        this.locator = locator;
-        this.licenseLocator = licenseLocator;
+    private static Map<String, ResourceLoader> newResourceLoaders() {
+        Map<String, ResourceLoader> loaders = new LinkedHashMap<>();
+        loaders.put(FileResourceLoader.ID, new FileResourceLoader());
+        loaders.put("jar", new JarResourceLoader());
+        loaders.put("url", new URLResourceLoader());
+        loaders.put("classloader", new ThreadContextClasspathResourceLoader());
+        return loaders;
     }
 
     @Override
@@ -89,10 +100,12 @@ public class DefaultCheckstyleExecutor implements CheckstyleExecutor {
             logger.debug("executeCheckstyle start headerLocation : " + request.getHeaderLocation());
         }
 
-        MavenProject project = request.getProject();
+        Project project = request.getProject();
 
+        locator = new DefaultResourceManager(newResourceLoaders());
         configureResourceLocator(locator, request, null);
 
+        licenseLocator = new LicenseResourceManager(newResourceLoaders());
         configureResourceLocator(licenseLocator, request, request.getLicenseArtifacts());
 
         // Config is less critical than License, locator can still be used.
@@ -119,25 +132,15 @@ public class DefaultCheckstyleExecutor implements CheckstyleExecutor {
         Collection<File> testSourceDirectories = request.getTestSourceDirectories();
 
         // aggregator
-        Map<MavenProject, Collection<File>> sourceDirectoriesByProject = new HashMap<>();
-        Map<MavenProject, Collection<File>> testSourceDirectoriesByProject = new HashMap<>();
+        Map<Project, Collection<File>> sourceDirectoriesByProject = new HashMap<>();
+        Map<Project, Collection<File>> testSourceDirectoriesByProject = new HashMap<>();
 
         if (request.isAggregate()) {
-            for (MavenProject childProject : request.getReactorProjects()) {
-                sourceDirectories =
-                        new ArrayList<>(childProject.getCompileSourceRoots().size());
-                List<String> compileSourceRoots = childProject.getCompileSourceRoots();
-                for (String compileSourceRoot : compileSourceRoots) {
-                    sourceDirectories.add(new File(compileSourceRoot));
-                }
+            for (Project childProject : request.getReactorProjects()) {
+                sourceDirectories = ProjectRoots.sourceRoots(request.getSession(), childProject, ProjectScope.MAIN);
                 sourceDirectoriesByProject.put(childProject, sourceDirectories);
 
-                testSourceDirectories =
-                        new ArrayList<>(childProject.getTestCompileSourceRoots().size());
-                List<String> testCompileSourceRoots = childProject.getTestCompileSourceRoots();
-                for (String testCompileSourceRoot : testCompileSourceRoots) {
-                    testSourceDirectories.add(new File(testCompileSourceRoot));
-                }
+                testSourceDirectories = ProjectRoots.sourceRoots(request.getSession(), childProject, ProjectScope.TEST);
                 testSourceDirectoriesByProject.put(childProject, testSourceDirectories);
 
                 prepareCheckstylePaths(
@@ -174,14 +177,14 @@ public class DefaultCheckstyleExecutor implements CheckstyleExecutor {
 
         CheckstyleCheckerListener checkerListener = new CheckstyleCheckerListener(configuration);
         if (request.isAggregate()) {
-            for (MavenProject childProject : request.getReactorProjects()) {
+            for (Project childProject : request.getReactorProjects()) {
                 sourceDirectories = sourceDirectoriesByProject.get(childProject);
                 testSourceDirectories = testSourceDirectoriesByProject.get(childProject);
                 addSourceDirectory(
                         checkerListener,
                         sourceDirectories,
                         testSourceDirectories,
-                        childProject.getResources(),
+                        ProjectRoots.resources(request.getSession(), childProject, ProjectScope.MAIN),
                         request);
             }
         } else {
@@ -323,25 +326,31 @@ public class DefaultCheckstyleExecutor implements CheckstyleExecutor {
 
     private void prepareCheckstylePaths(
             CheckstyleExecutorRequest request,
-            MavenProject project,
+            Project project,
             List<String> classPathStrings,
             List<String> outputDirectories,
             Collection<File> sourceDirectories,
             Collection<File> testSourceDirectories)
             throws CheckstyleExecutorException {
-        try {
-            outputDirectories.add(project.getBuild().getOutputDirectory());
+        outputDirectories.add(project.getBuild().getOutputDirectory());
 
-            if (request.isIncludeTestSourceDirectory()
-                    && (testSourceDirectories != null)
-                    && anyDirectoryExists(testSourceDirectories)) {
-                classPathStrings.addAll(project.getTestClasspathElements());
-                outputDirectories.add(project.getBuild().getTestOutputDirectory());
-            } else {
-                classPathStrings.addAll(project.getCompileClasspathElements());
+        boolean includeTests = request.isIncludeTestSourceDirectory()
+                && (testSourceDirectories != null)
+                && anyDirectoryExists(testSourceDirectories);
+        if (includeTests) {
+            outputDirectories.add(project.getBuild().getTestOutputDirectory());
+        }
+        if (request.getSession() != null) {
+            // Maven 4 resolves dependencies on request and omits the project's own output directories
+            try {
+                for (Path path : request.getSession()
+                        .resolveDependencies(project, includeTests ? PathScope.TEST_COMPILE : PathScope.MAIN_COMPILE)) {
+                    classPathStrings.add(path.toString());
+                }
+            } catch (RuntimeException e) {
+                logger.warn("Could not resolve the dependencies of " + project.getId()
+                        + ", classes of its dependencies are not available to Checkstyle: " + e.getMessage());
             }
-        } catch (DependencyResolutionRequiredException e) {
-            throw new CheckstyleExecutorException(e.getMessage(), e);
         }
     }
 
@@ -453,27 +462,21 @@ public class DefaultCheckstyleExecutor implements CheckstyleExecutor {
 
         Set<File> files = new LinkedHashSet<>();
         if (request.isAggregate()) {
-            for (MavenProject project : request.getReactorProjects()) {
+            for (Project project : request.getReactorProjects()) {
                 Set<File> sourceDirectories = new LinkedHashSet<>();
 
-                // CompileSourceRoots are absolute paths
-                List<String> compileSourceRoots = project.getCompileSourceRoots();
-                for (String compileSourceRoot : compileSourceRoots) {
-                    sourceDirectories.add(new File(compileSourceRoot));
-                }
+                // source roots are absolute paths
+                sourceDirectories.addAll(ProjectRoots.sourceRoots(request.getSession(), project, ProjectScope.MAIN));
 
                 Set<File> testSourceDirectories = new LinkedHashSet<>();
-                // CompileSourceRoots are absolute paths
-                List<String> testCompileSourceRoots = project.getTestCompileSourceRoots();
-                for (String testCompileSourceRoot : testCompileSourceRoots) {
-                    testSourceDirectories.add(new File(testCompileSourceRoot));
-                }
+                testSourceDirectories.addAll(
+                        ProjectRoots.sourceRoots(request.getSession(), project, ProjectScope.TEST));
 
                 addFilesToProcess(
                         request,
                         sourceDirectories,
-                        project.getResources(),
-                        project.getTestResources(),
+                        ProjectRoots.resources(request.getSession(), project, ProjectScope.MAIN),
+                        ProjectRoots.resources(request.getSession(), project, ProjectScope.TEST),
                         files,
                         testSourceDirectories);
             }
@@ -549,7 +552,8 @@ public class DefaultCheckstyleExecutor implements CheckstyleExecutor {
                     String excludes = request.getResourceExcludes();
 
                     // MCHECKSTYLE-214: Only with project-root respect in/excludes, otherwise you'll get every file
-                    if (resourcesDirectory.equals(request.getProject().getBasedir())) {
+                    if (resourcesDirectory.equals(
+                            request.getProject().getBasedir().toFile())) {
                         String resourceIncludes =
                                 StringUtils.join(resource.getIncludes().iterator(), ",");
                         if (includes == null || includes.isEmpty()) {
@@ -639,28 +643,28 @@ public class DefaultCheckstyleExecutor implements CheckstyleExecutor {
     private void configureResourceLocator(
             final ResourceManager resourceManager,
             final CheckstyleExecutorRequest request,
-            final List<Artifact> additionalArtifacts) {
-        final MavenProject project = request.getProject();
+            final List<Path> additionalArtifacts) {
+        final Project project = request.getProject();
         resourceManager.setOutputDirectory(new File(project.getBuild().getDirectory()));
 
         // Recurse up the parent hierarchy and add project directories to the search roots
-        MavenProject parent = project;
-        while (parent != null && parent.getFile() != null) {
+        Project parent = project;
+        while (parent != null && parent.getPomPath() != null) {
             // MCHECKSTYLE-131 ( olamy ) I don't like this hack.
             // (dkulp) Me either.   It really pollutes the location stuff
             // by allowing searches of stuff outside the current module.
-            File dir = parent.getFile().getParentFile();
+            File dir = parent.getPomPath().toFile().getParentFile();
             resourceManager.addSearchPath(FileResourceLoader.ID, dir.getAbsolutePath());
-            parent = parent.getParent();
+            parent = parent.getParent().orElse(null);
         }
         resourceManager.addSearchPath("url", "");
 
         // MCHECKSTYLE-225: load licenses from additional artifacts, not from classpath
         if (additionalArtifacts != null) {
-            for (Artifact licenseArtifact : additionalArtifacts) {
+            for (Path licenseArtifact : additionalArtifacts) {
                 try {
                     resourceManager.addSearchPath(
-                            "jar", "jar:" + licenseArtifact.getFile().toURI().toURL());
+                            "jar", "jar:" + licenseArtifact.toUri().toURL());
                 } catch (MalformedURLException e) {
                     // noop
                 }

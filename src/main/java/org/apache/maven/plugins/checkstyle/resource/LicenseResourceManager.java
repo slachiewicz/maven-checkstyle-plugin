@@ -18,9 +18,6 @@
  */
 package org.apache.maven.plugins.checkstyle.resource;
 
-import javax.inject.Inject;
-import javax.inject.Named;
-
 import java.util.Map;
 
 import org.codehaus.plexus.resource.DefaultResourceManager;
@@ -36,14 +33,12 @@ import org.slf4j.LoggerFactory;
  *
  * @since 2.12
  */
-@Named("license")
 public class LicenseResourceManager extends DefaultResourceManager {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(LicenseResourceManager.class);
 
     private final Map<String, ResourceLoader> resourceLoaders;
 
-    @Inject
     public LicenseResourceManager(Map<String, ResourceLoader> resourceLoaders) {
         super(resourceLoaders);
         this.resourceLoaders = resourceLoaders;
