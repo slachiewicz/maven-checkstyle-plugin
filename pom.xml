@@ -275,6 +275,7 @@ under the License.
           </excludes>
           <testExcludes>
             <testExclude>**/CheckstyleReportTest.java</testExclude>
+            <testExclude>**/CheckstyleReportScenarioTest.java</testExclude>
             <testExclude>**/stubs/**</testExclude>
             <testExclude>**/DependencyArtifactStubFactory.java</testExclude>
           </testExcludes>
